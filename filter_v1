@@ -1,0 +1,102 @@
+import cv2
+import numpy as np
+
+def run_independent_inspection_pipeline(image_path, k_multiplier=3.5):
+    # 1. Load Image
+    src = cv2.imread(image_path)
+    if src is None:
+        print(f"Error: Could not load image from {image_path}")
+        return
+    
+    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+    
+    # 2. Independent Illumination & Texture Enhancement (CLAHE)
+    # This enhances local micro-contrast (like jumps from 20 to 40) independently
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced_gray = clahe.apply(gray)
+    
+    # 3. Dynamic ROI Generation (Finding Closed Loops)
+    # Blur slightly to get clean, continuous structural borders
+    struct_blur = cv2.GaussianBlur(enhanced_gray, (5, 5), 0)
+    edges = cv2.Canny(struct_blur, 30, 100)
+    
+    # Find all closed loops/contours
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create empty masks for ROI tracking
+    roi_mask = np.zeros_like(gray)
+    roi_contour_visualization = src.copy()
+    
+    # Filter contours by size to isolate major structural components
+    min_roi_area = 500  
+    valid_rois = [c for c in contours if cv2.contourArea(c) > min_roi_area]
+    
+    if valid_rois:
+        # Draw filled white shapes on our mask
+        cv2.drawContours(roi_mask, valid_rois, -1, 255, thickness=cv2.FILLED)
+        # Draw thin green lines on the visualization
+        cv2.drawContours(roi_contour_visualization, valid_rois, -1, (0, 255, 0), 2)
+        
+        # CRITICAL STEP: Erode the mask slightly inward. 
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        roi_mask = cv2.erode(roi_mask, kernel, iterations=1)
+    else:
+        print("Warning: No distinct closed-loop ROI found. Inspecting whole frame.")
+        roi_mask[:] = 255
+        cv2.putText(roi_contour_visualization, "No ROI Found - Whole Image Active", (20, 50), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+
+    # =========================================================
+    # 4. RAW LAPLACIAN DEFECT DETECTION (Localized to ROI)
+    # =========================================================
+    # Bypassing the Gaussian Blur to directly calculate sharp 1-pixel edges
+    laplacian = cv2.Laplacian(enhanced_gray, cv2.CV_64F, ksize=3)
+    laplacian_abs = cv2.convertScaleAbs(laplacian)
+    
+    # Isolate the Laplacian response strictly inside our closed-loop ROI mask
+    masked_laplacian = cv2.bitwise_and(laplacian_abs, laplacian_abs, mask=roi_mask)
+    
+    # 5. Dynamic Thresholding inside the ROI
+    mean_val, std_dev = cv2.meanStdDev(masked_laplacian, mask=roi_mask)
+    dynamic_threshold = mean_val[0][0] + (k_multiplier * std_dev[0][0])
+    
+    _, binary_defects = cv2.threshold(masked_laplacian, dynamic_threshold, 255, cv2.THRESH_BINARY)
+    
+    # 6. Group Defect Pixels and Draw Red Rectangles
+    defect_contours, _ = cv2.findContours(binary_defects, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    final_output = src.copy()
+    
+    for dc in defect_contours:
+        x, y, w, h = cv2.boundingRect(dc)
+        # Filter out negligible single-pixel camera sensor noise if desired
+        if w >= 1 and h >= 1:
+            cv2.rectangle(final_output, (x, y), (x + w, y + h), (0, 0, 255), 2)
+
+    # ---------------------------------------------------------
+    # DISPLAY & SIDE-BY-SIDE COMPARISON LOGIC
+    # ---------------------------------------------------------
+    enhanced_bgr = cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2BGR)
+    masked_lap_bgr = cv2.cvtColor(masked_laplacian, cv2.COLOR_GRAY2BGR)
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(roi_contour_visualization, "1. Tracked ROIs (Green)", (20, 40), font, 1.0, (0, 255, 0), 2)
+    cv2.putText(enhanced_bgr, "2. Local Enhancement", (20, 40), font, 1.0, (255, 255, 0), 2)
+    cv2.putText(masked_lap_bgr, "3. Raw Laplacian (Inside ROI)", (20, 40), font, 1.0, (255, 255, 0), 2)
+    cv2.putText(final_output, f"4. Defects Flagged (k={k_multiplier})", (20, 40), font, 1.0, (0, 0, 255), 2)
+
+    top_row = np.hstack((roi_contour_visualization, enhanced_bgr))
+    bottom_row = np.hstack((masked_lap_bgr, final_output))
+    comparison_dashboard = np.vstack((top_row, bottom_row))
+
+    window_name = "Independent Industrial Inspection Pipeline (Raw Laplacian)"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1400, 800)
+    
+    cv2.imshow(window_name, comparison_dashboard)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# =========================================================================
+# PASTE YOUR IMAGE PATH HERE AND RUN
+# =========================================================================
+# run_independent_inspection_pipeline("path_to_your_phone_back_image.jpg", k_multiplier=3.5)
