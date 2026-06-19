@@ -1,0 +1,270 @@
+import cv2
+import numpy as np
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageTk
+import math
+
+class InspectionApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Industrial Machine Vision - Multi-Engine Sandbox")
+        self.root.geometry("1450x850")
+        
+        self.current_image = None
+        self.processed_image = None
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # --- LEFT PANEL: CONTROLS ---
+        control_frame = tk.Frame(self.root, width=380, bg="#f0f0f0", padx=10, pady=10)
+        control_frame.pack(side=tk.LEFT, fill=tk.Y)
+        
+        tk.Label(control_frame, text="1. Input Source", font=("Arial", 11, "bold"), bg="#f0f0f0").pack(pady=(0, 5))
+        tk.Button(control_frame, text="Upload Image", command=self.upload_image, width=20).pack(pady=2)
+        tk.Button(control_frame, text="Capture via Camera", command=self.capture_camera, width=20).pack(pady=2)
+        
+        tk.Label(control_frame, text="2. Detection Engine", font=("Arial", 11, "bold"), bg="#f0f0f0").pack(pady=(15, 5))
+        
+        self.engine_var = tk.StringVar(value="Raw Laplacian + Density (Sharp Dents)")
+        engines = [
+            "Raw Laplacian + Density (Sharp Dents)",
+            "Gabor Filter Bank (Thin Scratches)",
+            "Local Variance (Smudges & Sludge)",
+            "Local Binary Patterns (Texture Shifts)",
+            "FFT High-Pass (Repeating Noise Removal)"
+        ]
+        tk.OptionMenu(control_frame, self.engine_var, *engines).pack(fill=tk.X, padx=10)
+        
+        tk.Label(control_frame, text="3. Tuning Parameters", font=("Arial", 11, "bold"), bg="#f0f0f0").pack(pady=(15, 5))
+        
+        self.clahe_var = tk.IntVar(value=8)
+        tk.Label(control_frame, text="CLAHE Grid Size (Light Flattening)", bg="#f0f0f0").pack()
+        tk.Scale(control_frame, variable=self.clahe_var, from_=4, to=32, resolution=4, orient=tk.HORIZONTAL).pack()
+
+        self.thresh_var = tk.IntVar(value=40)
+        tk.Label(control_frame, text="Global Intensity/Response Threshold", bg="#f0f0f0").pack()
+        tk.Scale(control_frame, variable=self.thresh_var, from_=5, to=200, orient=tk.HORIZONTAL).pack()
+        
+        tk.Label(control_frame, text="4. Density Filter (Laplacian/Gabor Only)", font=("Arial", 11, "bold"), bg="#f0f0f0").pack(pady=(15, 5))
+
+        self.radius_var = tk.IntVar(value=50)
+        tk.Label(control_frame, text="Neighborhood Radius (Pixels)", bg="#f0f0f0").pack()
+        tk.Scale(control_frame, variable=self.radius_var, from_=10, to=200, orient=tk.HORIZONTAL).pack()
+        
+        self.neighbors_var = tk.IntVar(value=2)
+        tk.Label(control_frame, text="Max Allowed Neighbors", bg="#f0f0f0").pack()
+        tk.Scale(control_frame, variable=self.neighbors_var, from_=0, to=10, orient=tk.HORIZONTAL).pack()
+
+        tk.Button(control_frame, text="RUN PIPELINE", command=self.run_pipeline, bg="green", fg="white", font=("Arial", 12, "bold"), width=20).pack(pady=20)
+        
+        # --- MIDDLE PANEL: IMAGE DISPLAY ---
+        display_frame = tk.Frame(self.root, bg="black")
+        display_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.image_label = tk.Label(display_frame, text="Upload or Capture an image to begin", fg="white", bg="black", font=("Arial", 14))
+        self.image_label.pack(expand=True)
+        
+        # --- RIGHT PANEL: DOCUMENTATION ---
+        doc_frame = tk.Frame(self.root, width=250, bg="#e8e8e8", padx=10, pady=10)
+        doc_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        tk.Label(doc_frame, text="Engine Documentation", font=("Arial", 11, "bold"), bg="#e8e8e8").pack(pady=(0, 10))
+        
+        docs = """1. Raw Laplacian:
+Finds sharp intensity jumps. Density filter removes repeated glare.
+
+2. Gabor Filter Bank:
+Sweeps 4 angles (0°, 45°, 90°, 135°) to find faint directional scratches that Laplacian misses.
+
+3. Local Variance:
+Finds soft defects (smudges/grease). Slides an 11x11 window; if pixels fade softly instead of jumping sharply, variance spikes. (Ignores Density Filter)
+
+4. Local Binary Patterns (LBP):
+Calculates mathematical texture. Spikes when surface finish changes (e.g. glossy spot on matte glass).
+
+5. FFT High-Pass:
+Converts image to frequencies. Deletes low-frequency rolling light variations, leaving only harsh anomalies.
+"""
+        doc_text = tk.Text(doc_frame, wrap=tk.WORD, bg="#e8e8e8", borderwidth=0, font=("Arial", 10))
+        doc_text.insert(tk.END, docs)
+        doc_text.config(state=tk.DISABLED)
+        doc_text.pack(fill=tk.BOTH, expand=True)
+
+    def upload_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.jpeg *.png")])
+        if file_path:
+            self.current_image = cv2.imread(file_path)
+            self.display_image(self.current_image)
+            
+    def capture_camera(self):
+        cap = cv2.VideoCapture(0)
+        ret, frame = cap.read()
+        if ret:
+            self.current_image = frame
+            self.display_image(self.current_image)
+        cap.release()
+
+    def compute_lbp(self, img):
+        """Pure NumPy implementation of 8-neighbor Local Binary Patterns"""
+        padded = np.pad(img, 1, mode='edge')
+        center = padded[1:-1, 1:-1]
+        lbp = np.zeros_like(center, dtype=np.uint8)
+        
+        # 8 surrounding pixels
+        coords = [(-1,-1), (-1,0), (-1,1), (0,1), (1,1), (1,0), (1,-1), (0,-1)]
+        powers = [1, 2, 4, 8, 16, 32, 64, 128]
+        
+        for i, (dx, dy) in enumerate(coords):
+            neighbor = padded[1+dx:img.shape[0]+1+dx, 1+dy:img.shape[1]+1+dy]
+            lbp += (neighbor >= center).astype(np.uint8) * powers[i]
+        return lbp
+
+    def run_pipeline(self):
+        if self.current_image is None:
+            return
+            
+        img = self.current_image.copy()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # STEP 1: LOCAL LIGHTING (CLAHE)
+        grid_size = self.clahe_var.get()
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size, grid_size))
+        gray_equalized = clahe.apply(gray)
+        
+        # ROI MASKING (Chassis extraction)
+        _, bg_thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        bg_mask = cv2.morphologyEx(bg_thresh, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15)))
+        edges = cv2.Canny(gray_equalized, 30, 100)
+        edges_inside = cv2.bitwise_and(edges, edges, mask=bg_mask)
+        contours, _ = cv2.findContours(edges_inside, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        roi_mask = np.zeros_like(gray)
+        output_img = img.copy()
+        
+        for c in contours:
+            if cv2.contourArea(c) > 1000:
+                cv2.drawContours(roi_mask, [c], -1, 255, thickness=cv2.FILLED)
+                cv2.drawContours(output_img, [c], -1, (255, 0, 0), 1) 
+                
+        interior_mask = cv2.erode(roi_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)), iterations=1)
+        
+        # ==========================================
+        # STEP 2: DYNAMIC DETECTION ENGINES
+        # ==========================================
+        engine = self.engine_var.get()
+        threshold_val = self.thresh_var.get()
+        defect_map = np.zeros_like(gray)
+        
+        if "Laplacian" in engine:
+            laplacian = cv2.Laplacian(gray_equalized, cv2.CV_64F, ksize=3)
+            lap_abs = cv2.convertScaleAbs(laplacian)
+            _, defect_map = cv2.threshold(lap_abs, threshold_val, 255, cv2.THRESH_BINARY)
+            
+        elif "Gabor" in engine:
+            gabor_responses = []
+            # Sweep 4 directional angles for fine lines
+            for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
+                kernel = cv2.getGaborKernel((21, 21), 5.0, theta, 10.0, 0.5, 0, ktype=cv2.CV_32F)
+                filtered = cv2.filter2D(gray_equalized, cv2.CV_8UC3, kernel)
+                gabor_responses.append(filtered)
+            max_gabor = np.max(gabor_responses, axis=0)
+            _, defect_map = cv2.threshold(max_gabor, threshold_val, 255, cv2.THRESH_BINARY)
+            
+        elif "Variance" in engine:
+            # E[X^2] - (E[X])^2 over an 11x11 window to find soft smudges
+            img_float = gray_equalized.astype(np.float32)
+            mu = cv2.blur(img_float, (11, 11))
+            mu_2 = cv2.blur(img_float**2, (11, 11))
+            variance = mu_2 - mu**2
+            variance_norm = cv2.normalize(variance, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            _, defect_map = cv2.threshold(variance_norm, threshold_val, 255, cv2.THRESH_BINARY)
+            
+        elif "LBP" in engine:
+            # Calculate texture math, then look for massive deviations using standard deviation
+            lbp_img = self.compute_lbp(gray_equalized)
+            _, std_dev = cv2.meanStdDev(lbp_img, mask=interior_mask)
+            # Threshold based on extreme texture deviations
+            _, defect_map = cv2.threshold(lbp_img, threshold_val, 255, cv2.THRESH_BINARY)
+            
+        elif "FFT" in engine:
+            # Convert to frequency domain
+            dft = cv2.dft(np.float32(gray_equalized), flags=cv2.DFT_COMPLEX_OUTPUT)
+            dft_shift = np.fft.fftshift(dft)
+            
+            # Create High-Pass Filter mask (Black out the center low-frequencies)
+            rows, cols = gray.shape
+            crow, ccol = rows // 2, cols // 2
+            mask = np.ones((rows, cols, 2), np.uint8)
+            r = 30 # Delete rolling lighting variations
+            cv2.circle(mask, (ccol, crow), r, (0, 0, 0), -1)
+            
+            # Apply mask and inverse FFT
+            fshift = dft_shift * mask
+            f_ishift = np.fft.ifftshift(fshift)
+            img_back = cv2.idft(f_ishift)
+            img_back = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
+            
+            fft_norm = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            _, defect_map = cv2.threshold(fft_norm, threshold_val, 255, cv2.THRESH_BINARY)
+
+        # Apply interior safety mask
+        defect_map = cv2.bitwise_and(defect_map, defect_map, mask=interior_mask)
+
+        # ==========================================
+        # STEP 3: DRAWING & OUTLIER LOGIC
+        # ==========================================
+        def_contours, _ = cv2.findContours(defect_map, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Soft Area Engines (Draw semi-transparent bounding boxes for large smudges/texture changes)
+        if "Variance" in engine or "LBP" in engine:
+            overlay = output_img.copy()
+            for c in def_contours:
+                if cv2.contourArea(c) > 50: # Ignore tiny noise for smudges
+                    x, y, w, h = cv2.boundingRect(c)
+                    cv2.rectangle(overlay, (x, y), (x+w, y+h), (0, 165, 255), -1) # Orange Smudge Box
+            # Apply transparency
+            cv2.addWeighted(overlay, 0.4, output_img, 0.6, 0, output_img)
+            
+        # Sharp Point Engines (Apply your exact Density Outlier Logic)
+        else:
+            candidates = []
+            for c in def_contours:
+                if cv2.contourArea(c) > 1:
+                    M = cv2.moments(c)
+                    if M["m00"] != 0:
+                        cx, cy = int(M["m10"]/M["m00"]), int(M["m01"]/M["m00"])
+                        candidates.append({"contour": c, "center": (cx, cy)})
+                        
+            search_radius = self.radius_var.get()
+            max_neighbors = self.neighbors_var.get()
+            
+            for i, target in enumerate(candidates):
+                tx, ty = target["center"]
+                neighbors = sum(1 for j, other in enumerate(candidates) 
+                                if i != j and math.hypot(tx - other["center"][0], ty - other["center"][1]) <= search_radius)
+                
+                if neighbors <= max_neighbors:
+                    cv2.drawContours(output_img, [target["contour"]], -1, (0, 0, 255), thickness=-1)
+
+        self.display_image(output_img)
+
+    def display_image(self, cv_img):
+        h, w = cv_img.shape[:2]
+        max_height = 700
+        if h > max_height:
+            scale = max_height / h
+            cv_img = cv2.resize(cv_img, (int(w * scale), int(h * scale)))
+            
+        rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_image)
+        tk_image = ImageTk.PhotoImage(image=pil_image)
+        
+        self.image_label.config(image=tk_image, text="")
+        self.image_label.image = tk_image 
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = InspectionApp(root)
+    root.mainloop()
