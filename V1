@@ -1,0 +1,34 @@
+import cv2
+import numpy as np
+
+# Title shown in the GUI Dropdown
+NAME = "Laplacian V2 (Gaussian Smooth)"
+
+def process_frame(frame, k_multiplier=3.0, ksize=3):
+    """
+    frame: BGR Image numpy array
+    Returns: Processed BGR image
+    """
+    # 1. Blur to eliminate High-Frequency Noise
+    blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+    gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
+
+    # 2. Laplacian Detection
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=ksize)
+    laplacian_abs = cv2.convertScaleAbs(laplacian)
+
+    # 3. Dynamic Threshold
+    mean_val, std_dev = cv2.meanStdDev(laplacian_abs)
+    threshold_value = mean_val[0][0] + (k_multiplier * std_dev[0][0])
+    _, binary_mask = cv2.threshold(laplacian_abs, threshold_value, 255, cv2.THRESH_BINARY)
+
+    # 4. Contours
+    contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    result_img = frame.copy()
+    
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if w > 2 or h > 2:
+            cv2.rectangle(result_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+    return result_img
