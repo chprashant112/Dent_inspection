@@ -1,0 +1,151 @@
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+
+def create_presentation():
+    # Initialize presentation
+    prs = Presentation()
+    
+    # --- SLIDE 1: Title Slide ---
+    title_slide_layout = prs.slide_layouts[0]
+    slide1 = prs.slides.add_slide(title_slide_layout)
+    title1 = slide1.shapes.title
+    subtitle1 = slide1.placeholders[1]
+    
+    title1.text = "Automated Defect Inspection: Dents & Scratches"
+    subtitle1.text = "Transitioning from Heuristic CV to Hybrid Deep Learning Architectures\nFocus: Phone Back Glass"
+    
+    # --- SLIDE 2: Strategic Roadmap ---
+    bullet_layout = prs.slide_layouts[1]
+    slide2 = prs.slides.add_slide(bullet_layout)
+    slide2.shapes.title.text = "The Challenge & Strategic Roadmap"
+    tf2 = slide2.placeholders[1].text_frame
+    tf2.text = "Challenge: Detecting micro-dents on highly reflective glass with environmental glare."
+    
+    p = tf2.add_paragraph()
+    p.text = "Phase 1: Traditional CV (Active) - Real-time, heuristic-based."
+    p.level = 1
+    p = tf2.add_paragraph()
+    p.text = "Phase 2: Pure Deep Learning (Future) - CNNs for complex edge cases."
+    p.level = 1
+    p = tf2.add_paragraph()
+    p.text = "Phase 3: Hybrid Architecture (Ultimate) - CV feature maps fed to Deep Learning."
+    p.level = 1
+
+    # --- SLIDE 3: Phase 1 - Traditional CV Pipeline Overview ---
+    slide3 = prs.slides.add_slide(bullet_layout)
+    slide3.shapes.title.text = "Phase 1: Traditional CV Pipeline Overview"
+    tf3 = slide3.placeholders[1].text_frame
+    tf3.text = "Pipeline: Capture ➔ CLAHE ➔ Dynamic ROI ➔ Laplacian Edge ➔ Z-Score ➔ Temporal Buffer"
+    
+    p = tf3.add_paragraph()
+    p.text = "Why this approach?"
+    p.level = 0
+    p = tf3.add_paragraph()
+    p.text = "Executes in milliseconds; zero labeled training data needed."
+    p.level = 1
+    p = tf3.add_paragraph()
+    p.text = "Highly interpretable parameters (CLAHE grid, K-size)."
+    p.level = 1
+
+    # Add Image Placeholder
+    left = Inches(5.5); top = Inches(2.5); width = Inches(4); height = Inches(2.5)
+    shape = slide3.shapes.add_shape(1, left, top, width, height) # 1 is rectangle
+    shape.text = "[Insert CV Flowchart/Block Diagram Here]"
+
+    # --- SLIDE 4: Illumination Control & Dynamic ROI ---
+    slide4 = prs.slides.add_slide(bullet_layout)
+    slide4.shapes.title.text = "Illumination Control & Dynamic ROI"
+    tf4 = slide4.placeholders[1].text_frame
+    tf4.text = "1. Micro-Contrast Enhancement (CLAHE)"
+    
+    p = tf4.add_paragraph()
+    p.text = "Locally flattens lighting (8x8 grids) to highlight micro-variations."
+    p.level = 1
+    p = tf4.add_paragraph()
+    p.text = "2. Dynamic Closed-Loop ROI Generation"
+    p.level = 0
+    p = tf4.add_paragraph()
+    p.text = "Uses Adaptive Thresholding & Morphological Erosion to isolate the glass interior."
+    p.level = 1
+
+    left = Inches(6.0); top = Inches(2.0); width = Inches(3.5); height = Inches(4)
+    shape = slide4.shapes.add_shape(1, left, top, width, height)
+    shape.text = ""
+
+    # --- SLIDE 5: Core Defect Detection (Laplacian) ---
+    slide5 = prs.slides.add_slide(bullet_layout)
+    slide5.shapes.title.text = "Core Defect Detection (Raw Laplacian)"
+    tf5 = slide5.placeholders[1].text_frame
+    tf5.text = "1. Raw Laplacian Edge Detection"
+    p = tf5.add_paragraph()
+    p.text = "Bypasses heavy blurring to capture sharp, 1-pixel micro-scratches."
+    p.level = 1
+    p = tf5.add_paragraph()
+    p.text = "2. Localized Sliding-Window Thresholding"
+    p.level = 0
+    p = tf5.add_paragraph()
+    p.text = "Upgraded from global thresholding to a Local BoxFilter."
+    p.level = 1
+    p = tf5.add_paragraph()
+    p.text = "Formula: Threshold = Local_Mean + (k_multiplier * Local_StdDev)"
+    p.level = 1
+
+    # --- SLIDE 6: Advanced Noise & Glare Rejection ---
+    slide6 = prs.slides.add_slide(bullet_layout)
+    slide6.shapes.title.text = "Advanced Noise & Glare Rejection"
+    tf6 = slide6.placeholders[1].text_frame
+    tf6.text = "1. Spatial Density Outlier Filtering"
+    p = tf6.add_paragraph()
+    p.text = "Ignores pixels if they have too many neighbors (filters out repeating glare)."
+    p.level = 1
+    p = tf6.add_paragraph()
+    p.text = "2. Temporal Persistence Buffer"
+    p.level = 0
+    p = tf6.add_paragraph()
+    p.text = "Maintains a rolling buffer of 3 frames to eliminate 1-frame sensor flickers."
+    p.level = 1
+
+    left = Inches(6.0); top = Inches(2.5); width = Inches(3.5); height = Inches(3)
+    shape = slide6.shapes.add_shape(1, left, top, width, height)
+    shape.text = ""
+
+    # --- SLIDE 7: Phase 2 & 3 - Deep Learning & Hybrid ---
+    slide7 = prs.slides.add_slide(bullet_layout)
+    slide7.shapes.title.text = "Future Scope: Deep Learning & Hybrid Systems"
+    tf7 = slide7.placeholders[1].text_frame
+    tf7.text = "Phase 2: Deep Learning Models"
+    p = tf7.add_paragraph()
+    p.text = "Instance Segmentation (YOLOv8-Seg) / Object Detection (YOLOv10)."
+    p.level = 1
+    p = tf7.add_paragraph()
+    p.text = "Phase 3: The Hybrid Architecture (Ultimate Goal)"
+    p.level = 0
+    p = tf7.add_paragraph()
+    p.text = "Stack Enhanced Grayscale + Laplacian Edge Map + Raw RGB into a tensor."
+    p.level = 1
+    p = tf7.add_paragraph()
+    p.text = "Feed to CNN: Faster convergence and higher accuracy with structural hints."
+    p.level = 1
+
+    left = Inches(6.5); top = Inches(2.0); width = Inches(3); height = Inches(2.5)
+    shape = slide7.shapes.add_shape(1, left, top, width, height)
+    shape.text = "[Insert Abstract DL/Neural Network Graphic]"
+
+    # Save presentation
+    prs.save("Defect_Inspection_Presentation.pptx")
+    print("Presentation created successfully: Defect_Inspection_Presentation.pptx")
+
+if __name__ == "__main__":
+    create_presentation()
+
+
+
+
+
+
+
+
+
+pip install python-pptx
